@@ -1,0 +1,146 @@
+-- Dynamic UI Library untuk Roblox
+local DynamicUi = {}
+
+-- Fungsi untuk Membuat ScreenGui
+function DynamicUi.CreateScreen(name, size, position)
+    local screenGui = Instance.new("ScreenGui")
+    screenGui.Name = name
+    screenGui.ResetOnSpawn = false
+    screenGui.Parent = game.Players.LocalPlayer:WaitForChild("PlayerGui")
+
+    local mainFrame = Instance.new("Frame")
+    mainFrame.Size = size or UDim2.new(0, 500, 0, 400)
+    mainFrame.Position = position or UDim2.new(0.5, -250, 0.5, -200)
+    mainFrame.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+    mainFrame.BorderSizePixel = 0
+    mainFrame.Parent = screenGui
+
+    return mainFrame
+end
+
+-- Fungsi untuk Membuat Sidebar
+function DynamicUi.CreateSidebar(parentFrame, width)
+    local sidebar = Instance.new("Frame")
+    sidebar.Size = UDim2.new(0, width or 150, 1, 0)
+    sidebar.Position = UDim2.new(0, 0, 0, 0)
+    sidebar.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+    sidebar.BorderSizePixel = 0
+    sidebar.Parent = parentFrame
+
+    local uiListLayout = Instance.new("UIListLayout")
+    uiListLayout.FillDirection = Enum.FillDirection.Vertical
+    uiListLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    uiListLayout.Parent = sidebar
+
+    return sidebar
+end
+
+-- Fungsi untuk Membuat Tab secara Dinamis
+function DynamicUi.CreateTab(tabName, sidebar, index)
+    local tabButton = Instance.new("TextButton")
+    tabButton.Size = UDim2.new(1, 0, 0, 50)
+    tabButton.Text = tabName
+    tabButton.Font = Enum.Font.GothamBold
+    tabButton.TextSize = 18
+    tabButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+    tabButton.BackgroundColor3 = Color3.fromRGB(55, 55, 55)
+    tabButton.Parent = sidebar
+
+    -- Fungsi ketika tombol tab diklik
+    tabButton.MouseButton1Click:Connect(function()
+        DynamicUi.SelectTab(tabName, sidebar.Parent) -- Memilih tab yang diklik
+    end)
+
+    return tabButton
+end
+
+-- Fungsi untuk Membuat Tombol dengan Fungsi secara Dinamis
+function DynamicUi.CreateButton(buttonName, parentFrame, position, size, func)
+    local button = Instance.new("TextButton")
+    button.Size = size or UDim2.new(0, 200, 0, 50)
+    button.Position = position or UDim2.new(0, 100, 0, 100)
+    button.Text = buttonName
+    button.Font = Enum.Font.GothamBold
+    button.TextSize = 20
+    button.TextColor3 = Color3.fromRGB(255, 255, 255)
+    button.BackgroundColor3 = Color3.fromRGB(85, 85, 255)
+    button.Parent = parentFrame
+
+    -- Fungsi ketika tombol diklik
+    button.MouseButton1Click:Connect(func)
+
+    return button
+end
+
+-- Fungsi untuk Membuat Konten untuk Tab secara Dinamis
+function DynamicUi.CreateTabContent(tabName, parentFrame)
+    local contentFrame = Instance.new("Frame")
+    contentFrame.Name = tabName .. "Content"
+    contentFrame.Size = UDim2.new(1, -150, 1, 0)
+    contentFrame.Position = UDim2.new(0, 150, 0, 0)
+    contentFrame.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+    contentFrame.BorderSizePixel = 0
+    contentFrame.Visible = false
+    contentFrame.Parent = parentFrame
+
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(1, 0, 0, 50)
+    label.Text = tabName
+    label.Font = Enum.Font.GothamBold
+    label.TextSize = 20
+    label.TextColor3 = Color3.fromRGB(255, 255, 255)
+    label.BackgroundTransparency = 1
+    label.Parent = contentFrame
+
+    return contentFrame
+end
+
+-- Fungsi untuk Menampilkan Tab yang Dipilih
+function DynamicUi.SelectTab(tabName, parentFrame)
+    for _, child in pairs(parentFrame:GetChildren()) do
+        if child:IsA("Frame") and child.Name:find("Content") then
+            child.Visible = (child.Name == tabName .. "Content")
+        end
+    end
+end
+
+-- Fungsi untuk Membuat UI dan Menambahkan Tab/Tombol secara Dinamis
+function DynamicUi.CreateUI()
+    -- Membuat Screen Utama
+    local screenFrame = DynamicUi.CreateScreen("MyDynamicUI", UDim2.new(0, 500, 0, 400), UDim2.new(0.5, -250, 0.5, -200))
+
+    -- Sidebar
+    local sidebar = DynamicUi.CreateSidebar(screenFrame, 150)
+
+    -- Daftar Tab dan Konten
+    local tabNames = {"Tab 1", "Tab 2", "Tab 3", "Tab 4", "Tab 5"}  -- Bisa ditambah tanpa batas
+    local buttonFunctions = {  -- Tombol untuk tiap tab
+        function()
+            print("Clique 1 Diklik!")
+            -- Tambahkan fungsi untuk tombol pertama
+        end,
+        function()
+            print("Clique 2 Diklik!")
+            -- Tambahkan fungsi untuk tombol kedua
+        end,
+        function()
+            print("Clique 3 Diklik!")
+            -- Tambahkan fungsi untuk tombol ketiga
+        end,
+    }
+
+    -- Membuat Tab dan Konten Dinamis
+    for index, tabName in ipairs(tabNames) do
+        local tabButton = DynamicUi.CreateTab(tabName, sidebar, index)
+        local tabContent = DynamicUi.CreateTabContent(tabName, screenFrame)
+
+        -- Membuat Tombol untuk Tab Tertentu
+        DynamicUi.CreateButton("Clique " .. index, tabContent, UDim2.new(0, 50, 0, 100), UDim2.new(0, 200, 0, 50), buttonFunctions[index])
+    end
+
+    -- Pilih Tab pertama secara default
+    DynamicUi.SelectTab(tabNames[1], screenFrame)
+end
+
+-- Menjalankan UI
+DynamicUi.CreateUI()
