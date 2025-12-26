@@ -1,0 +1,548 @@
+-- AetherLib: Roblox UI Library (Orion + Wind + Metro + Aero Style)
+-- Versi 1.0
+
+local AetherLib = {}
+local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+
+-- Konfigurasi Gaya
+local Theme = {
+    Font = Enum.Font.GothamMedium, -- Font gaya Metro/Modern
+    TitleFont = Enum.Font.GothamBold,
+    
+    -- Warna Aero / Win 7 (Dark Glassy)
+    Background = Color3.fromRGB(25, 25, 35),
+    GlassBackground = Color3.fromRGB(30, 30, 45),
+    GlassBorder = Color3.fromRGB(255, 255, 255), -- Border "Glow"
+    
+    -- Warna Accent (Frutiger Aero Blue/Cyan)
+    Accent = Color3.fromRGB(0, 195, 255),
+    AccentHover = Color3.fromRGB(50, 215, 255),
+    AccentDark = Color3.fromRGB(0, 120, 180),
+    
+    -- Text Colors
+    TextMain = Color3.fromRGB(240, 240, 240),
+    TextSub = Color3.fromRGB(150, 150, 170),
+    
+    -- Corner Radius (Rounded)
+    WindowRadius = 16,
+    ElementRadius = 8,
+    ButtonRadius = 6
+}
+
+-- Fungsi Utilitas
+local function Create(Class, Properties)
+    local Instance = Instance.new(Class)
+    for Index, Value in pairs(Properties) do
+        Instance[Index] = Value
+    end
+    return Instance
+end
+
+local function MakeDraggable(Object, Handle)
+    local Dragging = false
+    local DragInput, MousePos, FramePos
+
+    Handle.InputBegan:Connect(function(Input)
+        if Input.UserInputType == Enum.UserInputType.MouseButton1 then
+            Dragging = true
+            MousePos = Input.Position
+            FramePos = Object.Position
+            
+            -- Efek visual saat ditarik (Opacity turun sedikit)
+            TweenService:Create(Object, TweenInfo.new(0.2), {
+                BackgroundTransparency = 0.15
+            }):Play()
+        end
+    end)
+
+    Handle.InputEnded:Connect(function(Input)
+        if Input.UserInputType == Enum.UserInputType.MouseButton1 then
+            Dragging = false
+            
+            -- Kembalikan Opacity
+            TweenService:Create(Object, TweenInfo.new(0.2), {
+                BackgroundTransparency = 0.1
+            }):Play()
+        end
+    end)
+
+    UserInputService.InputChanged:Connect(function(Input)
+        if Input == DragInput and Dragging then
+            local Delta = Input.Position - MousePos
+            local NewPos = UDim2.new(FramePos.X.Scale, FramePos.X.Offset + Delta.X, FramePos.Y.Scale, FramePos.Y.Offset + Delta.Y)
+            
+            TweenService:Create(Object, TweenInfo.new(0.1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                Position = NewPos
+            }):Play()
+        end
+    end)
+end
+
+-- === MAIN LIBRARY STRUCTURE ===
+
+function AetherLib:New(WindowName)
+    local ScreenGui = Create("ScreenGui", {
+        Name = "AetherLib_UI",
+        ResetOnSpawn = false,
+        ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
+        Parent = game.CoreGui -- Set ke playerGui jika perlu di mode lokal
+    })
+
+    -- Main Window (Win 7 Aero Style: Gelap, Transparan, Border Tipis)
+    local MainWindow = Create("Frame", {
+        Name = "MainWindow",
+        Size = UDim2.new(0, 550, 0, 400),
+        Position = UDim2.new(0.5, -275, 0.5, -200),
+        BackgroundColor3 = Theme.Background,
+        BackgroundTransparency = 0.1, -- Sedikit transparan
+        Parent = ScreenGui,
+        ZIndex = 10
+    })
+    
+    -- Glass Effect (Stroke)
+    local AeroStroke = Create("UIStroke", {
+        Color = Theme.GlassBorder,
+        Transparency = 0.7,
+        Thickness = 1,
+        Parent = MainWindow
+    })
+    
+    -- Glass Effect (Inner Shadow/Gradient simulated by UIListLayout/Frame)
+    local WindowCorner = Create("UICorner", {
+        CornerRadius = UDim.new(0, Theme.WindowRadius),
+        Parent = MainWindow
+    })
+
+    -- Header / Top Bar
+    local TopBar = Create("Frame", {
+        Name = "TopBar",
+        Size = UDim2.new(1, 0, 0, 40),
+        BackgroundColor3 = Theme.GlassBackground,
+        BackgroundTransparency = 0.2,
+        BorderSizePixel = 0,
+        Parent = MainWindow
+    })
+    local TopBarCorner = Create("UICorner", {CornerRadius = UDim.new(0, Theme.WindowRadius), Parent = TopBar})
+    local TopBarPadding = Create("UIPadding", {PaddingTop = UDim.new(0, 0), Parent = TopBar}) -- Fix radius top
+    
+    -- Masking agar rounded corner top bar rapi
+    local TopBarMask = Create("Frame", {
+        Size = UDim2.new(1, 0, 0, 20),
+        Position = UDim2.new(0, 0, 1, -10),
+        BackgroundColor3 = Theme.GlassBackground,
+        BackgroundTransparency = 0.2,
+        BorderSizePixel = 0,
+        Parent = TopBar
+    })
+
+    local Title = Create("TextLabel", {
+        Name = "Title",
+        Size = UDim2.new(1, -20, 1, 0),
+        Position = UDim2.new(0, 20, 0, 0),
+        BackgroundTransparency = 1,
+        Text = WindowName,
+        TextColor3 = Theme.TextMain,
+        TextSize = 18,
+        Font = Theme.TitleFont,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        Parent = TopBar
+    })
+
+    -- Tab Container (Sidebar style but in Metro blocks)
+    local TabHolder = Create("Frame", {
+        Name = "TabHolder",
+        Size = UDim2.new(1, 0, 0, 35),
+        Position = UDim2.new(0, 0, 1, 0),
+        BackgroundTransparency = 1,
+        Parent = TopBar
+    })
+    
+    local TabLayout = Create("UIListLayout", {
+        FillDirection = Enum.FillDirection.Horizontal,
+        Padding = UDim.new(0, 5),
+        Parent = TabHolder
+    })
+    
+    local TabPadding = Create("UIPadding", {
+        PaddingLeft = UDim.new(0, 10),
+        PaddingTop = UDim.new(0, 5),
+        Parent = TabHolder
+    })
+
+    -- Content Container
+    local ContentContainer = Create("Frame", {
+        Name = "ContentContainer",
+        Size = UDim2.new(1, 0, 1, -75),
+        Position = UDim2.new(0, 0, 1, 0),
+        BackgroundTransparency = 1,
+        Parent = MainWindow
+    })
+
+    -- Logic Dragging
+    MakeDraggable(MainWindow, TopBar)
+
+    local WindowData = {
+        Tabs = {},
+        CurrentTab = nil,
+        Gui = ScreenGui
+    }
+
+    -- Animasi Masuk (Wind UI style: fast & bouncy)
+    MainWindow.Size = UDim2.new(0, 0, 0, 0)
+    MainWindow:TweenSize(UDim2.new(0, 550, 0, 400), "Out", "Quad", 0.4, true)
+
+    function WindowData:AddTab(TabName)
+        local TabButton = Create("TextButton", {
+            Name = TabName,
+            Size = UDim2.new(0, 100, 0, 30),
+            BackgroundColor3 = Theme.Background,
+            BackgroundTransparency = 0.2,
+            Text = TabName,
+            TextColor3 = Theme.TextSub,
+            TextSize = 14,
+            Font = Theme.Font,
+            Parent = TabHolder
+        })
+        local TabBtnCorner = Create("UICorner", {CornerRadius = UDim.new(0, 6), Parent = TabButton})
+        local TabBtnStroke = Create("UIStroke", {
+            Color = Theme.GlassBorder,
+            Transparency = 0.8,
+            Thickness = 1,
+            Parent = TabButton
+        })
+
+        local TabContent = Create("ScrollingFrame", {
+            Name = TabName .. "Content",
+            Size = UDim2.new(1, -20, 1, 0),
+            Position = UDim2.new(0, 10, 0, 0),
+            BackgroundColor3 = Color3.fromRGB(255, 255, 255),
+            BackgroundTransparency = 1,
+            Visible = false,
+            ScrollBarThickness = 4,
+            ScrollBarImageColor3 = Theme.Accent,
+            Parent = ContentContainer
+        })
+        local ContentLayout = Create("UIListLayout", {
+            Padding = UDim.new(0, 10),
+            Parent = TabContent
+        })
+        local ContentPadding = Create("UIPadding", {
+            PaddingTop = UDim.new(0, 10),
+            PaddingBottom = UDim.new(0, 10),
+            Parent = TabContent
+        })
+
+        -- Update canvas size otomatis
+        ContentLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+            TabContent.CanvasSize = UDim2.new(0, 0, 0, ContentLayout.AbsoluteContentSize.Y + 20)
+        end)
+
+        TabButton.MouseButton1Click:Connect(function()
+            -- Reset semua tab
+            for _, Tab in pairs(WindowData.Tabs) do
+                Tab.Button.TextColor3 = Theme.TextSub
+                Tab.Button.BackgroundColor3 = Theme.Background
+                Tab.Content.Visible = false
+            end
+            
+            -- Set tab aktif
+            TabButton.TextColor3 = Theme.Accent
+            TabButton.BackgroundColor3 = Theme.GlassBackground
+            TabContent.Visible = true
+        end)
+
+        -- Default Tab
+        if #WindowData.Tabs == 0 then
+            TabButton.TextColor3 = Theme.Accent
+            TabButton.BackgroundColor3 = Theme.GlassBackground
+            TabContent.Visible = true
+            WindowData.CurrentTab = TabContent
+        end
+
+        table.insert(WindowData.Tabs, {
+            Button = TabButton,
+            Content = TabContent
+        })
+
+        local TabData = { Content = TabContent }
+
+        function TabData:AddSection(SectionName)
+            local Section = Create("Frame", {
+                Name = "Section",
+                Size = UDim2.new(1, 0, 0, 30), -- Auto size later
+                BackgroundTransparency = 1,
+                Parent = TabContent
+            })
+
+            local SectionTitle = Create("TextLabel", {
+                Name = "SectionTitle",
+                Size = UDim2.new(1, 0, 0, 25),
+                BackgroundTransparency = 1,
+                Text = SectionName,
+                TextColor3 = Theme.Accent,
+                TextSize = 16,
+                Font = Theme.TitleFont,
+                TextXAlignment = Enum.TextXAlignment.Left,
+                Parent = Section
+            })
+            
+            local SectionContainer = Create("Frame", {
+                Name = "SectionContainer",
+                Size = UDim2.new(1, 0, 0, 0),
+                BackgroundTransparency = 1,
+                Parent = Section
+            })
+            local ContainerLayout = Create("UIListLayout", {
+                Padding = UDim.new(0, 8),
+                Parent = SectionContainer
+            })
+
+            ContainerLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+                Section.Size = UDim2.new(1, 0, 0, ContainerLayout.AbsoluteContentSize.Y + 25)
+            end)
+
+            local SectionData = { Container = SectionContainer }
+
+            -- === BUTTON ===
+            function SectionData:AddButton(ButtonName, Callback)
+                local Button = Create("TextButton", {
+                    Size = UDim2.new(1, 0, 0, 35),
+                    BackgroundColor3 = Theme.GlassBackground,
+                    BorderSizePixel = 0,
+                    Text = "  " .. ButtonName,
+                    TextColor3 = Theme.TextMain,
+                    TextSize = 14,
+                    Font = Theme.Font,
+                    TextXAlignment = Enum.TextXAlignment.Left,
+                    Parent = SectionContainer
+                })
+                
+                local ButtonCorner = Create("UICorner", {CornerRadius = UDim.new(0, Theme.ButtonRadius), Parent = Button})
+                local ButtonStroke = Create("UIStroke", {
+                    Color = Theme.AccentDark,
+                    Transparency = 0.7,
+                    Thickness = 1,
+                    Parent = Button
+                })
+                
+                -- Indikator panah kecil ala Metro
+                local Arrow = Create("TextLabel", {
+                    Size = UDim2.new(0, 20, 1, 0),
+                    Position = UDim2.new(1, -25, 0, 0),
+                    BackgroundTransparency = 1,
+                    Text = ">",
+                    TextColor3 = Theme.TextSub,
+                    Parent = Button
+                })
+
+                Button.MouseButton1Click:Connect(function()
+                    Callback()
+                    -- Animasi Klik
+                    TweenService:Create(Button, TweenInfo.new(0.1), {BackgroundColor3 = Theme.AccentDark}):Play()
+                    wait(0.1)
+                    TweenService:Create(Button, TweenInfo.new(0.2), {BackgroundColor3 = Theme.GlassBackground}):Play()
+                end)
+
+                Button.MouseEnter:Connect(function()
+                    TweenService:Create(Button, TweenInfo.new(0.3), {BackgroundColor3 = Theme.AccentDark}):Play()
+                    TweenService:Create(Arrow, TweenInfo.new(0.3), {TextTransparency = 0, Position = UDim2.new(1, -20, 0, 0)}):Play()
+                end)
+
+                Button.MouseLeave:Connect(function()
+                    TweenService:Create(Button, TweenInfo.new(0.3), {BackgroundColor3 = Theme.GlassBackground}):Play()
+                    TweenService:Create(Arrow, TweenInfo.new(0.3), {TextTransparency = 1, Position = UDim2.new(1, -25, 0, 0)}):Play()
+                end)
+            end
+
+            -- === TOGGLE ===
+            function SectionData:AddToggle(ToggleName, Default, Callback)
+                local ToggleFrame = Create("Frame", {
+                    Size = UDim2.new(1, 0, 0, 35),
+                    BackgroundColor3 = Theme.GlassBackground,
+                    Parent = SectionContainer
+                })
+                local TgCorner = Create("UICorner", {CornerRadius = UDim.new(0, Theme.ButtonRadius), Parent = ToggleFrame})
+                local TgStroke = Create("UIStroke", {Color = Theme.AccentDark, Transparency = 0.7, Thickness = 1, Parent = ToggleFrame})
+
+                local ToggleBtn = Create("TextButton", {
+                    Size = UDim2.new(1, 0, 1, 0),
+                    BackgroundTransparency = 1,
+                    Text = "  " .. ToggleName,
+                    TextColor3 = Theme.TextMain,
+                    Font = Theme.Font,
+                    TextSize = 14,
+                    TextXAlignment = Enum.TextXAlignment.Left,
+                    Parent = ToggleFrame
+                })
+
+                local ToggleBox = Create("Frame", {
+                    Size = UDim2.new(0, 30, 0, 18),
+                    Position = UDim2.new(1, -45, 0.5, -9),
+                    BackgroundColor3 = Color3.fromRGB(100, 100, 100),
+                    Parent = ToggleFrame
+                })
+                local TBoxCorner = Create("UICorner", {CornerRadius = UDim.new(0, 10), Parent = ToggleBox})
+
+                local ToggleDot = Create("Frame", {
+                    Size = UDim2.new(0, 14, 0, 14),
+                    Position = UDim2.new(0, 2, 0.5, -7),
+                    BackgroundColor3 = Color3.fromRGB(255, 255, 255),
+                    Parent = ToggleBox
+                })
+                local TDotCorner = Create("UICorner", {CornerRadius = UDim.new(0, 10), Parent = ToggleDot})
+
+                local Toggled = false
+
+                local function UpdateState(State)
+                    Toggled = State
+                    Callback(State)
+                    
+                    if State then
+                        TweenService:Create(ToggleBox, TweenInfo.new(0.3, Enum.EasingStyle.Quart), {
+                            BackgroundColor3 = Theme.Accent,
+                            Size = UDim2.new(0, 36, 0, 18)
+                        }):Play()
+                        ToggleDot:TweenPosition(UDim2.new(1, -16, 0.5, -7), "Out", "Quad", 0.3, true)
+                    else
+                        TweenService:Create(ToggleBox, TweenInfo.new(0.3, Enum.EasingStyle.Quart), {
+                            BackgroundColor3 = Color3.fromRGB(100, 100, 100),
+                            Size = UDim2.new(0, 30, 0, 18)
+                        }):Play()
+                        ToggleDot:TweenPosition(UDim2.new(0, 2, 0.5, -7), "Out", "Quad", 0.3, true)
+                    end
+                end
+
+                ToggleBtn.MouseButton1Click:Connect(function()
+                    UpdateState(not Toggled)
+                end)
+
+                if Default then UpdateState(true) end
+            end
+
+            -- === SLIDER ===
+            function SectionData:AddSlider(SliderName, Min, Max, Default, Callback)
+                local SliderFrame = Create("Frame", {
+                    Size = UDim2.new(1, 0, 0, 45),
+                    BackgroundColor3 = Theme.GlassBackground,
+                    Parent = SectionContainer
+                })
+                local SlCorner = Create("UICorner", {CornerRadius = UDim.new(0, Theme.ButtonRadius), Parent = SliderFrame})
+                local SlStroke = Create("UIStroke", {Color = Theme.AccentDark, Transparency = 0.7, Thickness = 1, Parent = SliderFrame})
+
+                local SliderLabel = Create("TextLabel", {
+                    Size = UDim2.new(1, -20, 0, 15),
+                    Position = UDim2.new(0, 10, 0, 5),
+                    BackgroundTransparency = 1,
+                    Text = SliderName .. " : " .. tostring(Default),
+                    TextColor3 = Theme.TextMain,
+                    Font = Theme.Font,
+                    TextSize = 13,
+                    TextXAlignment = Enum.TextXAlignment.Left,
+                    Parent = SliderFrame
+                })
+
+                local SliderBar = Create("Frame", {
+                    Size = UDim2.new(1, -20, 0, 6),
+                    Position = UDim2.new(0, 10, 0, 25),
+                    BackgroundColor3 = Color3.fromRGB(50, 50, 60),
+                    Parent = SliderFrame
+                })
+                local SlBarCorner = Create("UICorner", {CornerRadius = UDim.new(0, 5), Parent = SliderBar})
+
+                local SliderFill = Create("Frame", {
+                    Size = UDim2.new(0, 0, 1, 0),
+                    BackgroundColor3 = Theme.Accent,
+                    Parent = SliderBar
+                })
+                local SlFillCorner = Create("UICorner", {CornerRadius = UDim.new(0, 5), Parent = SliderFill})
+                
+                local SliderBtn = Create("TextButton", {
+                    Size = UDim2.new(1, 0, 1, 0),
+                    BackgroundTransparency = 1,
+                    Text = "",
+                    Parent = SliderBar
+                })
+
+                local ValPercent = (Default - Min) / (Max - Min)
+                SliderFill.Size = UDim2.new(ValPercent, 0, 1, 0)
+
+                local Dragging = false
+
+                local function UpdateSlider(Input)
+                    local Size = math.clamp((Input.Position.X - SliderBar.AbsolutePosition.X) / SliderBar.AbsoluteSize.X, 0, 1)
+                    SliderFill:TweenSize(UDim2.new(Size, 0, 1, 0), "Out", "Quad", 0.1, true)
+                    
+                    local Value = math.floor(Min + ((Max - Min) * Size))
+                    SliderLabel.Text = SliderName .. " : " .. tostring(Value)
+                    Callback(Value)
+                end
+
+                SliderBtn.MouseButton1Down:Connect(function() Dragging = true end)
+                SliderBtn.MouseButton1Up:Connect(function() Dragging = false end)
+                
+                UserInputService.InputEnded:Connect(function(Input)
+                    if Input.UserInputType == Enum.UserInputType.MouseButton1 then Dragging = false end
+                end)
+
+                UserInputService.InputChanged:Connect(function(Input)
+                    if Dragging and Input.UserInputType == Enum.UserInputType.MouseMovement then
+                        UpdateSlider(Input)
+                    end
+                end)
+            end
+
+            -- === TEXTBOX ===
+            function SectionData:AddTextBox(TextboxName, PlaceholderText, Callback)
+                local BoxFrame = Create("Frame", {
+                    Size = UDim2.new(1, 0, 0, 35),
+                    BackgroundColor3 = Theme.GlassBackground,
+                    Parent = SectionContainer
+                })
+                local BoxCorner = Create("UICorner", {CornerRadius = UDim.new(0, Theme.ButtonRadius), Parent = BoxFrame})
+                local BoxStroke = Create("UIStroke", {Color = Theme.AccentDark, Transparency = 0.7, Thickness = 1, Parent = BoxFrame})
+
+                local BoxLabel = Create("TextLabel", {
+                    Size = UDim2.new(0, 100, 1, 0),
+                    BackgroundTransparency = 1,
+                    Text = "  " .. TextboxName,
+                    TextColor3 = Theme.TextSub,
+                    Font = Theme.Font,
+                    TextSize = 14,
+                    TextXAlignment = Enum.TextXAlignment.Left,
+                    Parent = BoxFrame
+                })
+
+                local BoxInput = Create("TextBox", {
+                    Size = UDim2.new(1, -110, 1, 0),
+                    Position = UDim2.new(0, 100, 0, 0),
+                    BackgroundColor3 = Color3.fromRGB(20, 20, 25),
+                    BorderSizePixel = 0,
+                    Text = "",
+                    PlaceholderText = PlaceholderText,
+                    PlaceholderColor3 = Color3.fromRGB(100, 100, 100),
+                    TextColor3 = Theme.TextMain,
+                    Font = Theme.Font,
+                    TextSize = 14,
+                    Parent = BoxFrame
+                })
+                Create("UICorner", {CornerRadius = UDim.new(0, 4), Parent = BoxInput})
+
+                BoxInput.FocusLost:Connect(function(EnterPressed)
+                    if EnterPressed then
+                        Callback(BoxInput.Text)
+                    end
+                end)
+            end
+
+            return SectionData
+        end
+
+        return TabData
+    end
+
+    return WindowData
+end
+
+return AetherLib
