@@ -1,5 +1,5 @@
 -- language: Lua, file: LvHub_SK.lua, target: Roblox executor, game: Secret Killer
--- WindUI dependent. firetouchinterest teleport, screen-locked instant shoot.
+-- WindUI dependent. 0.5s teleport gun grab, screen-locked instant shoot.
 
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
@@ -8,9 +8,6 @@ local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
 local VirtualUser = game:GetService("VirtualUser")
 local Lighting = game:GetService("Lighting")
-
--- firetouchinterest detection
-local fireTouchInterest = firetouchinterest or fireTouch or nil
 
 -- =========================
 -- WINDUI LOAD
@@ -100,7 +97,7 @@ local isAnonymous = true
 
 local Window = WindUI:CreateWindow({
     Title = "Lv Hub | SK",
-    Author = "by lv",
+    Author = "by lv — VANTA refit",
     Icon = "squircle",
     Size = UDim2.fromOffset(520, 460),
     Theme = "Midnight",
@@ -131,7 +128,7 @@ local PlayerTab = Window:Tab({ Title = "Player", Icon = "user" })
 
 WindUI:Notify({
     Title = "Welcome To Lv Hub",
-    Content = "Secret Killer",
+    Content = "Secret Killer — VANTA refit",
     Duration = 6
 })
 
@@ -147,10 +144,11 @@ local AutoRespawn = false
 local AntiAfk = false
 local InfJump = false
 local Noclip = false
-local POPUP_DURATION = 2.6
+local POPUP_DURATION = 6
 local currentBlur = nil
 local lastMonster = nil
 local lastSheriff = nil
+local isGrabbing = false
 
 -- =========================
 -- UTILITY FUNCTIONS
@@ -202,29 +200,35 @@ local function equipGun()
     return nil
 end
 
--- Instant gun grab: firetouchinterest fires Touched same frame, no teleport needed
-local function instantGrabGun()
+-- 0.5s teleport grab: teleport to gun, hold 0.5s for server pickup, restore
+local function teleportGrabGun()
+    if isGrabbing then return false end
     if localPlayerHasGun() then return true end
+
     local gunPart = getGunPart()
     local char = LocalPlayer.Character
     local hrp = char and char:FindFirstChild("HumanoidRootPart")
     if not gunPart or not hrp then return false end
 
-    if fireTouchInterest then
-        -- firetouchinterest: (part, touchPart, isTouched, touchId)
-        fireTouchInterest(hrp, gunPart, 0)
-        fireTouchInterest(hrp, gunPart, 1)
-        task.wait()
-        return localPlayerHasGun()
-    else
-        -- Fallback: instant teleport, grab, restore — all in one frame
-        local oldPos = hrp.CFrame
-        hrp.CFrame = gunPart.CFrame
-        RunService.Heartbeat:Wait()
-        local grabbed = localPlayerHasGun()
-        hrp.CFrame = oldPos
-        return grabbed
+    isGrabbing = true
+    local oldPos = hrp.CFrame
+
+    -- teleport to gun
+    hrp.CFrame = gunPart.CFrame + Vector3.new(0, 3, 0)
+
+    -- hold 0.5 seconds for server to register the pickup
+    local startTime = tick()
+    while not localPlayerHasGun() and tick() - startTime < 0.5 do
+        task.wait(0.05)
     end
+
+    -- restore original position
+    if hrp and hrp.Parent then
+        hrp.CFrame = oldPos
+    end
+
+    isGrabbing = false
+    return localPlayerHasGun()
 end
 
 -- =========================
@@ -885,13 +889,13 @@ task.spawn(function()
 end)
 
 -- =========================
--- AUTO GET GUN — firetouchinterest (0-frame, no teleport visible)
+-- AUTO GET GUN — 0.5s teleport
 -- =========================
 task.spawn(function()
     while true do
         if AutoGun then
-            if not localPlayerHasGun() then
-                instantGrabGun()
+            if not localPlayerHasGun() and not isGrabbing then
+                teleportGrabGun()
             end
         end
         task.wait(0.3)
@@ -899,13 +903,10 @@ task.spawn(function()
 end)
 
 MainTab:Toggle({
-    Title = "Auto Get Gun (Instant)",
+    Title = "Auto Get Gun",
     Value = false,
     Callback = function(v)
         AutoGun = v
-        if v and not fireTouchInterest then
-            WindUI:Notify({ Title = "Auto Gun", Content = "Executor tidak support firetouchinterest, pakai teleport fallback.", Duration = 4 })
-        end
     end
 })
 
@@ -994,7 +995,7 @@ eContainer.InputEnded:Connect(function(input)
 end)
 
 eBtn.MouseButton1Click:Connect(function()
-    instantGrabGun()
+    teleportGrabGun()
 end)
 
 local ePulseRunning = false
@@ -1044,7 +1045,7 @@ task.spawn(function()
 end)
 
 -- =========================
--- SHOOT MONSTER — FRAME-INSTANT, NO ROTATION LAG
+-- SHOOT MONSTER
 -- =========================
 local shootButtonGui = Instance.new("ScreenGui")
 shootButtonGui.Name = "LvHub_ShootMonsterBtn"
@@ -1199,10 +1200,6 @@ local function runStatusPulse()
     end)
 end
 
--- =========================
--- INSTANT SHOOT — NO ROTATION, NO HEARTBEAT WAIT
--- Calculates screen position first, fires same frame
--- =========================
 local function instantShootMonster()
     if not localPlayerHasGun() then
         WindUI:Notify({ Title = "Shoot Monster", Content = "Kamu tidak punya Gun!", Duration = 2 })
@@ -1224,16 +1221,13 @@ local function instantShootMonster()
     local humanoid = char:FindFirstChild("Humanoid")
     if not hrp or not humanoid then return end
 
-    -- Equip gun
     local gun = equipGun()
     if not gun then return end
 
-    -- Calculate screen position of monster head BEFORE any movement
     local camera = workspace.CurrentCamera
     local screenPos, onScreen = camera:WorldToScreenPoint(monsterHead.Position)
 
     if not onScreen then
-        -- Monster is off-screen: rotate to face them, then fire
         local oldAutoRotate = humanoid.AutoRotate
         humanoid.AutoRotate = false
         local lookCFrame = CFrame.lookAt(hrp.Position, Vector3.new(monsterHead.Position.X, hrp.Position.Y, monsterHead.Position.Z))
@@ -1243,15 +1237,12 @@ local function instantShootMonster()
         humanoid.AutoRotate = oldAutoRotate
     end
 
-    -- Fire everything same-frame: Tool:Activate + VirtualUser click at exact screen pos
     if onScreen then
-        -- Path 1: VirtualUser — simulates real mouse click at monster's screen position
         pcall(function()
             VirtualUser:Button1Down(Vector2.new(screenPos.X, screenPos.Y))
             VirtualUser:Button1Up(Vector2.new(screenPos.X, screenPos.Y))
         end)
 
-        -- Path 2: Tool:Activate — fires the gun's Activated event directly
         pcall(function()
             if gun and gun.Parent then
                 gun:Activate()
@@ -1259,7 +1250,6 @@ local function instantShootMonster()
         end)
     end
 
-    -- Visual feedback
     statusDot.BackgroundColor3 = Color3.fromRGB(255, 50, 50)
     TweenService:Create(shootBg, TweenInfo.new(0.05), { BackgroundColor3 = Color3.fromRGB(255, 200, 50) }):Play()
     task.delay(0.15, function()
