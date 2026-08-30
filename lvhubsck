@@ -1,11 +1,97 @@
+-- language: Lua, file: LvHub_SK.lua, target: Roblox executor, game: Secret Killer
+-- WindUI dependent — bulletproof load with fallback. All features toggleable.
+
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
 local VirtualUser = game:GetService("VirtualUser")
+local Lighting = game:GetService("Lighting")
 
-local WindUI = loadstring(game:HttpGet("https://github.com/Footagesus/WindUI/releases/latest/download/main.lua"))()
+-- =========================
+-- BULLETPROOF WINDUI LOAD
+-- =========================
+local WindUI = nil
+local loadSuccess, loadError = nil, nil
+
+local urls = {
+    "https://github.com/Footagesus/WindUI/releases/latest/download/main.lua",
+    "https://raw.githubusercontent.com/Footagesus/WindUI/main/main.lua"
+}
+
+for _, url in ipairs(urls) do
+    local ok, result = pcall(function()
+        local src = game:HttpGet(url)
+        return loadstring(src)()
+    end)
+    if ok and result and type(result) == "table" then
+        WindUI = result
+        loadSuccess = true
+        break
+    end
+    loadError = result and tostring(result) or "unknown error"
+    task.wait(0.5)
+end
+
+if not WindUI then
+    local errGui = Instance.new("ScreenGui")
+    errGui.Name = "LvHub_Error"
+    errGui.ResetOnSpawn = false
+    errGui.Parent = game.CoreGui
+
+    local frame = Instance.new("Frame")
+    frame.Size = UDim2.new(0, 350, 0, 120)
+    frame.Position = UDim2.new(0.5, -175, 0.5, -60)
+    frame.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
+    frame.Parent = errGui
+    Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 12)
+
+    local stroke = Instance.new("UIStroke")
+    stroke.Color = Color3.fromRGB(255, 60, 60)
+    stroke.Thickness = 2
+    stroke.Parent = frame
+
+    local title = Instance.new("TextLabel")
+    title.Size = UDim2.new(1, -20, 0, 30)
+    title.Position = UDim2.new(0, 10, 0, 10)
+    title.BackgroundTransparency = 1
+    title.TextColor3 = Color3.fromRGB(255, 80, 80)
+    title.Text = "LvHub — WindUI Failed to Load"
+    title.Font = Enum.Font.GothamBold
+    title.TextSize = 16
+    title.TextXAlignment = Enum.TextXAlignment.Left
+    title.Parent = frame
+
+    local msg = Instance.new("TextLabel")
+    msg.Size = UDim2.new(1, -20, 0, 60)
+    msg.Position = UDim2.new(0, 10, 0, 40)
+    msg.BackgroundTransparency = 1
+    msg.TextColor3 = Color3.fromRGB(180, 180, 190)
+    msg.Text = "Error: " .. (loadError or "could not fetch WindUI") .. "\nCheck: executor has HTTP enabled, or update executor."
+    msg.Font = Enum.Font.Gotham
+    msg.TextSize = 12
+    msg.TextWrapped = true
+    msg.TextXAlignment = Enum.TextXAlignment.Left
+    msg.TextYAlignment = Enum.TextYAlignment.Top
+    msg.Parent = frame
+
+    local closeBtn = Instance.new("TextButton")
+    closeBtn.Size = UDim2.new(0, 80, 0, 24)
+    closeBtn.Position = UDim2.new(1, -90, 1, -32)
+    closeBtn.BackgroundColor3 = Color3.fromRGB(255, 60, 60)
+    closeBtn.TextColor3 = Color3.new(1, 1, 1)
+    closeBtn.Text = "Close"
+    closeBtn.Font = Enum.Font.GothamBold
+    closeBtn.TextSize = 12
+    closeBtn.Parent = frame
+    Instance.new("UICorner", closeBtn).CornerRadius = UDim.new(0, 6)
+    closeBtn.MouseButton1Click:Connect(function() errGui:Destroy() end)
+
+    return
+end
+
+task.wait(0.3)
 
 local isAnonymous = true
 
@@ -13,7 +99,7 @@ local Window = WindUI:CreateWindow({
     Title = "Lv Hub | SK",
     Author = "by lv",
     Icon = "squircle",
-    Size = UDim2.fromOffset(520, 420),
+    Size = UDim2.fromOffset(520, 460),
     Theme = "Midnight",
     Folder = "LvHubConfig",
     User = {
@@ -38,11 +124,12 @@ Window:EditOpenButton({
 })
 
 local MainTab = Window:Tab({ Title = "Main", Icon = "home" })
+local PlayerTab = Window:Tab({ Title = "Player", Icon = "user" })
 
 WindUI:Notify({
     Title = "Welcome To Lv Hub",
     Content = "Secret Killer",
-    Duration = 26
+    Duration = 6
 })
 
 -- =========================
@@ -51,7 +138,16 @@ WindUI:Notify({
 local ESPEnabled = false
 local AutoGun = false
 local ShootMode = false
-local POPUP_DURATION = 6
+local AutoShoot = false
+local AutoDetect = false
+local AutoRespawn = false
+local AntiAfk = false
+local InfJump = false
+local Noclip = false
+local POPUP_DURATION = 2.6
+local currentBlur = nil
+local lastMonster = nil
+local lastSheriff = nil
 
 -- =========================
 -- UTILITY FUNCTIONS
@@ -64,6 +160,7 @@ local function getGunPart()
             return gun:FindFirstChild("Part")
         end
     end
+    return nil
 end
 
 local function hasItem(player, name)
@@ -83,49 +180,175 @@ local function getPlayerWithItem(itemName)
 end
 
 local function localPlayerHasGun()
-    return LocalPlayer.Backpack:FindFirstChild("Gun") 
+    return LocalPlayer.Backpack:FindFirstChild("Gun")
         or (LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Gun"))
 end
 
--- =========================
--- ESP PERMANENT
--- =========================
-local function analyze(player)
-    if not player.Character then return end
+-- 1-frame equip
+local function equipGun()
+    if not LocalPlayer.Character then return nil end
+    local humanoid = LocalPlayer.Character:FindFirstChild("Humanoid")
+    if not humanoid then return nil end
+    local gunInChar = LocalPlayer.Character:FindFirstChild("Gun")
+    if gunInChar then return gunInChar end
+    local gunInBag = LocalPlayer.Backpack:FindFirstChild("Gun")
+    if gunInBag then
+        humanoid:EquipTool(gunInBag)
+        RunService.Heartbeat:Wait()
+        return LocalPlayer.Character:FindFirstChild("Gun")
+    end
+    return nil
+end
 
-    local highlight = player.Character:FindFirstChild("LvHighlight") or Instance.new("Highlight")
-    highlight.Name = "LvHighlight"
-    highlight.Parent = player.Character
-    highlight.Adornee = player.Character
-    highlight.Enabled = ESPEnabled
-    highlight.FillTransparency = 0.5
-    highlight.OutlineTransparency = 0
-
-    if hasItem(player, "Monster") then
-        highlight.FillColor = Color3.new(1, 0, 0)
-        highlight.OutlineColor = Color3.fromRGB(255, 100, 100)
-    elseif hasItem(player, "Gun") then
-        highlight.FillColor = Color3.new(0, 0, 1)
-        highlight.OutlineColor = Color3.fromRGB(100, 100, 255)
-    else
-        highlight.FillColor = Color3.new(0, 1, 0)
-        highlight.OutlineColor = Color3.fromRGB(100, 255, 100)
+-- Instant gun grab via touch interest + 1 frame wait
+local function instantGetGun()
+    local char = LocalPlayer.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    local part = getGunPart()
+    if hrp and part then
+        local oldPos = hrp.CFrame
+        hrp.CFrame = part.CFrame
+        if firetouchinterest then
+            firetouchinterest(hrp, part, 0)
+            firetouchinterest(hrp, part, 1)
+        end
+        RunService.Heartbeat:Wait()
+        if hrp and hrp.Parent then
+            hrp.CFrame = oldPos
+        end
     end
 end
 
+-- =========================
+-- ESP SYSTEM — HIGHLIGHT + BILLBOARD
+-- =========================
+local function getRole(player)
+    if hasItem(player, "Monster") then return "MONSTER", Color3.new(1, 0, 0), Color3.fromRGB(255, 100, 100) end
+    if hasItem(player, "Gun") then return "SHERIFF", Color3.new(0, 0.3, 1), Color3.fromRGB(100, 100, 255) end
+    return "INNOCENT", Color3.new(0, 1, 0), Color3.fromRGB(100, 255, 100)
+end
+
+local function ensureBillboard(character)
+    local head = character:FindFirstChild("Head")
+    if not head then return nil end
+
+    local bb = head:FindFirstChild("LvBillboard")
+    if not bb then
+        bb = Instance.new("BillboardGui")
+        bb.Name = "LvBillboard"
+        bb.Adornee = head
+        bb.Size = UDim2.new(0, 200, 0, 50)
+        bb.StudsOffset = Vector3.new(0, 2.5, 0)
+        bb.AlwaysOnTop = true
+        bb.Parent = head
+
+        local nameLabel = Instance.new("TextLabel")
+        nameLabel.Name = "NameLabel"
+        nameLabel.Size = UDim2.new(1, 0, 0, 20)
+        nameLabel.BackgroundTransparency = 1
+        nameLabel.Font = Enum.Font.GothamBold
+        nameLabel.TextSize = 14
+        nameLabel.TextStrokeTransparency = 0
+        nameLabel.TextXAlignment = Enum.TextXAlignment.Center
+        nameLabel.Parent = bb
+
+        local distLabel = Instance.new("TextLabel")
+        distLabel.Name = "DistLabel"
+        distLabel.Size = UDim2.new(1, 0, 0, 16)
+        distLabel.Position = UDim2.new(0, 0, 0, 22)
+        distLabel.BackgroundTransparency = 1
+        distLabel.Font = Enum.Font.Gotham
+        distLabel.TextSize = 12
+        distLabel.TextStrokeTransparency = 0
+        distLabel.TextXAlignment = Enum.TextXAlignment.Center
+        distLabel.Parent = bb
+    end
+    return bb
+end
+
+local function analyze(player)
+    if not player or not player.Character then return end
+
+    local character = player.Character
+    local role, fillColor, outlineColor = getRole(player)
+
+    local highlight = character:FindFirstChild("LvHighlight") or Instance.new("Highlight")
+    highlight.Name = "LvHighlight"
+    highlight.Parent = character
+    highlight.Adornee = character
+    highlight.Enabled = ESPEnabled
+    highlight.FillTransparency = 0.5
+    highlight.OutlineTransparency = 0
+    highlight.FillColor = fillColor
+    highlight.OutlineColor = outlineColor
+
+    local bb = ensureBillboard(character)
+    if bb then
+        bb.Enabled = ESPEnabled
+        local nameLabel = bb:FindFirstChild("NameLabel")
+        local distLabel = bb:FindFirstChild("DistLabel")
+
+        if nameLabel then
+            nameLabel.Text = player.DisplayName .. " [" .. role .. "]"
+            nameLabel.TextColor3 = fillColor
+        end
+
+        if distLabel then
+            local myHrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+            local theirHrp = character:FindFirstChild("HumanoidRootPart")
+            if myHrp and theirHrp then
+                local dist = math.floor((myHrp.Position - theirHrp.Position).Magnitude)
+                distLabel.Text = tostring(dist) .. " studs"
+                distLabel.TextColor3 = outlineColor
+            else
+                distLabel.Text = "-- studs"
+            end
+        end
+    end
+end
+
+local function clearESP(player)
+    if not player then return end
+    local char = player.Character
+    if not char then return end
+    local h = char:FindFirstChild("LvHighlight")
+    if h then h.Enabled = false end
+    local head = char:FindFirstChild("Head")
+    local bb = head and head:FindFirstChild("LvBillboard")
+    if bb then bb.Enabled = false end
+end
+
+local function hookPlayer(player)
+    if player == LocalPlayer then return end
+    player.CharacterAdded:Connect(function()
+        task.wait(0.5)
+        if ESPEnabled then
+            analyze(player)
+        end
+    end)
+end
+
+for _, plr in pairs(Players:GetPlayers()) do
+    hookPlayer(plr)
+end
+Players.PlayerAdded:Connect(hookPlayer)
+
 task.spawn(function()
     while true do
-        for _, plr in pairs(Players:GetPlayers()) do
-            if plr ~= LocalPlayer then
-                if ESPEnabled then
+        if ESPEnabled then
+            for _, plr in pairs(Players:GetPlayers()) do
+                if plr ~= LocalPlayer then
                     analyze(plr)
-                else
-                    local h = plr.Character and plr.Character:FindFirstChild("LvHighlight")
-                    if h then h.Enabled = false end
+                end
+            end
+        else
+            for _, plr in pairs(Players:GetPlayers()) do
+                if plr ~= LocalPlayer then
+                    clearESP(plr)
                 end
             end
         end
-        task.wait(1)
+        task.wait(0.3)
     end
 end)
 
@@ -138,11 +361,27 @@ MainTab:Toggle({
 })
 
 -- =========================
--- POPUP DETECTION
+-- POPUP SYSTEM
 -- =========================
+local function cleanupPopup()
+    local old = game.CoreGui:FindFirstChild("LvHub_DetectPopup")
+    if old then old:Destroy() end
+    if currentBlur and currentBlur.Parent then
+        currentBlur:Destroy()
+    end
+    currentBlur = nil
+end
+
+local function createBlur()
+    cleanupPopup()
+    currentBlur = Instance.new("BlurEffect")
+    currentBlur.Size = 0
+    currentBlur.Parent = Lighting
+    return currentBlur
+end
+
 local function createSinglePlayerPopup(player, roleType)
-    local oldPopup = game.CoreGui:FindFirstChild("LvHub_DetectPopup")
-    if oldPopup then oldPopup:Destroy() end
+    local blurEffect = createBlur()
 
     local isMonster = roleType == "Monster"
     local accentColor = isMonster and Color3.fromRGB(255, 60, 60) or Color3.fromRGB(60, 120, 255)
@@ -155,10 +394,6 @@ local function createSinglePlayerPopup(player, roleType)
     screenGui.ResetOnSpawn = false
     screenGui.Parent = game.CoreGui
     screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-
-    local blurEffect = Instance.new("BlurEffect")
-    blurEffect.Size = 0
-    blurEffect.Parent = game:GetService("Lighting")
 
     local mainFrame = Instance.new("Frame")
     mainFrame.Size = UDim2.new(0, 280, 0, 160)
@@ -361,18 +596,13 @@ local function createSinglePlayerPopup(player, roleType)
 end
 
 local function createDualPlayerPopup(monsterPlayer, copPlayer)
-    local oldPopup = game.CoreGui:FindFirstChild("LvHub_DetectPopup")
-    if oldPopup then oldPopup:Destroy() end
+    local blurEffect = createBlur()
 
     local screenGui = Instance.new("ScreenGui")
     screenGui.Name = "LvHub_DetectPopup"
     screenGui.ResetOnSpawn = false
     screenGui.Parent = game.CoreGui
     screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-
-    local blurEffect = Instance.new("BlurEffect")
-    blurEffect.Size = 0
-    blurEffect.Parent = game:GetService("Lighting")
 
     local totalPlayers = (monsterPlayer and 1 or 0) + (copPlayer and 1 or 0)
     local popupHeight = 70 + (totalPlayers * 70) + 20
@@ -562,7 +792,7 @@ local function createDualPlayerPopup(monsterPlayer, copPlayer)
             }):Play()
             task.delay(0.5, function()
                 if screenGui.Parent then screenGui:Destroy() end
-                if blurEffect.Parent then blurEffect:Destroy() end
+                if blurEffect and blurEffect.Parent then blurEffect:Destroy() end
             end)
         end
     end)
@@ -616,21 +846,44 @@ MainTab:Button({
 })
 
 -- =========================
--- AUTO GET GUN
+-- AUTO-DETECT
+-- =========================
+MainTab:Toggle({
+    Title = "Auto Detect Roles",
+    Value = false,
+    Callback = function(v)
+        AutoDetect = v
+        lastMonster = nil
+        lastSheriff = nil
+    end
+})
+
+task.spawn(function()
+    while true do
+        if AutoDetect then
+            local monster = getPlayerWithItem("Monster")
+            local cop = getPlayerWithItem("Gun")
+
+            if monster ~= lastMonster or cop ~= lastSheriff then
+                if monster or cop then
+                    createDualPlayerPopup(monster, cop)
+                end
+                lastMonster = monster
+                lastSheriff = cop
+            end
+        end
+        task.wait(1)
+    end
+end)
+
+-- =========================
+-- AUTO GET GUN — 1 FRAME TELEPORT
 -- =========================
 task.spawn(function()
     while true do
         if AutoGun then
-            local char = LocalPlayer.Character
-            if char then
-                local hrp = char:FindFirstChild("HumanoidRootPart")
-                local part = getGunPart()
-                if hrp and part then
-                    local old = hrp.CFrame
-                    hrp.CFrame = part.CFrame
-                    task.wait(0.05)
-                    hrp.CFrame = old
-                end
+            if not localPlayerHasGun() then
+                instantGetGun()
             end
         end
         task.wait(0.5)
@@ -730,28 +983,24 @@ eContainer.InputEnded:Connect(function(input)
 end)
 
 eBtn.MouseButton1Click:Connect(function()
-    local char = LocalPlayer.Character
-    local hrp = char and char:FindFirstChild("HumanoidRootPart")
-    local part = getGunPart()
-    if hrp and part then
-        local old = hrp.CFrame
-        hrp.CFrame = part.CFrame
-        task.wait(0.1)
-        hrp.CFrame = old
-    end
+    instantGetGun()
 end)
 
-local ePulseAnim
-local function startEPulse()
-    if ePulseAnim then ePulseAnim:Cancel() end
-    ePulseAnim = TweenService:Create(eGlow, TweenInfo.new(0.8, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), { ImageTransparency = 0.2 })
-    ePulseAnim:Play()
-    ePulseAnim.Completed:Connect(function()
-        local out = TweenService:Create(eGlow, TweenInfo.new(0.8, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), { ImageTransparency = 0.6 })
-        out:Play()
-        out.Completed:Connect(function()
-            if eBtn.Visible then startEPulse() end
-        end)
+local ePulseRunning = false
+local function runEPulse()
+    if ePulseRunning then return end
+    ePulseRunning = true
+    task.spawn(function()
+        while eBtn.Visible and ePulseRunning do
+            local t1 = TweenService:Create(eGlow, TweenInfo.new(0.8, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), { ImageTransparency = 0.2 })
+            t1:Play()
+            t1.Completed:Wait()
+            if not eBtn.Visible then break end
+            local t2 = TweenService:Create(eGlow, TweenInfo.new(0.8, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), { ImageTransparency = 0.6 })
+            t2:Play()
+            t2.Completed:Wait()
+        end
+        ePulseRunning = false
     end)
 end
 
@@ -773,18 +1022,18 @@ end
 
 task.spawn(function()
     while true do
-        local isNear, dist = monsterNearGun()
+        local isNear = monsterNearGun()
+        local wasVisible = eBtn.Visible
         eBtn.Visible = isNear
-        if isNear then
-            startEPulse()
-            eGlow.ImageTransparency = 0.7 - (math.clamp(1 - (dist / 30), 0.3, 1) * 0.5)
+        if isNear and not wasVisible then
+            runEPulse()
         end
         task.wait(0.3)
     end
 end)
 
 -- =========================
--- SHOOT MONSTER - MOBILE SAFE & INSTANT
+-- SHOOT MONSTER — CAMERA + HRP SNAP, ZERO LAG
 -- =========================
 local shootButtonGui = Instance.new("ScreenGui")
 shootButtonGui.Name = "LvHub_ShootMonsterBtn"
@@ -866,7 +1115,6 @@ statusDot.ZIndex = 5
 statusDot.Parent = shootContainer
 Instance.new("UICorner", statusDot).CornerRadius = UDim.new(1, 0)
 
--- Draggable
 local sDragging = false
 local sDragInput = nil
 local sDragStart = Vector3.new(0, 0, 0)
@@ -893,7 +1141,7 @@ UserInputService.InputChanged:Connect(function(input)
         local delta = input.Position - sDragStart
         if math.abs(delta.X) > 5 or math.abs(delta.Y) > 5 then
             sMoved = true
-        end
+        }
         shootContainer.Position = UDim2.new(sStartPos.X.Scale, sStartPos.X.Offset + delta.X, sStartPos.Y.Scale, sStartPos.Y.Offset + delta.Y)
     end
 end)
@@ -904,87 +1152,104 @@ shootContainer.InputEnded:Connect(function(input)
     end
 end)
 
--- Pulse animations
-local shootPulseAnim
-local function startShootPulse()
-    if shootPulseAnim then shootPulseAnim:Cancel() end
-    shootPulseAnim = TweenService:Create(shootGlow, TweenInfo.new(0.7, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), { ImageTransparency = 0.15 })
-    shootPulseAnim:Play()
-    shootPulseAnim.Completed:Connect(function()
-        local out = TweenService:Create(shootGlow, TweenInfo.new(0.7, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), { ImageTransparency = 0.55 })
-        out:Play()
-        out.Completed:Connect(function()
-            if shootContainer.Visible then startShootPulse() end
-        end)
+local shootPulseRunning = false
+local function runShootPulse()
+    if shootPulseRunning then return end
+    shootPulseRunning = true
+    task.spawn(function()
+        while shootContainer.Visible and shootPulseRunning do
+            local t1 = TweenService:Create(shootGlow, TweenInfo.new(0.7, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), { ImageTransparency = 0.15 })
+            t1:Play()
+            t1.Completed:Wait()
+            if not shootContainer.Visible then break end
+            local t2 = TweenService:Create(shootGlow, TweenInfo.new(0.7, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), { ImageTransparency = 0.55 })
+            t2:Play()
+            t2.Completed:Wait()
+        end
+        shootPulseRunning = false
     end)
 end
 
-local statusPulse
-local function startStatusPulse()
-    if statusPulse then statusPulse:Cancel() end
-    statusPulse = TweenService:Create(statusDot, TweenInfo.new(0.5, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), { BackgroundTransparency = 0.5 })
-    statusPulse:Play()
-    statusPulse.Completed:Connect(function()
-        local out = TweenService:Create(statusDot, TweenInfo.new(0.5, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), { BackgroundTransparency = 0 })
-        out:Play()
-        out.Completed:Connect(function()
-            if shootContainer.Visible then startStatusPulse() end
-        end)
+local statusPulseRunning = false
+local function runStatusPulse()
+    if statusPulseRunning then return end
+    statusPulseRunning = true
+    task.spawn(function()
+        while shootContainer.Visible and statusPulseRunning do
+            local t1 = TweenService:Create(statusDot, TweenInfo.new(0.5, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), { BackgroundTransparency = 0.5 })
+            t1:Play()
+            t1.Completed:Wait()
+            if not shootContainer.Visible then break end
+            local t2 = TweenService:Create(statusDot, TweenInfo.new(0.5, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), { BackgroundTransparency = 0 })
+            t2:Play()
+            t2.Completed:Wait()
+        end
+        statusPulseRunning = false
     end)
 end
 
--- =========================
--- INSTANT SHOOT - MOBILE & PC SAFE
--- =========================
+-- INSTANT SHOOT — FULL 3D CAMERA + HRP SNAP
 local function instantShootMonster()
     if not localPlayerHasGun() then
         WindUI:Notify({ Title = "Shoot Monster", Content = "Kamu tidak punya Gun!", Duration = 2 })
         return
     end
-    
+
     local monster = getPlayerWithItem("Monster")
     if not monster or not monster.Character then
         WindUI:Notify({ Title = "Shoot Monster", Content = "Monster tidak ditemukan!", Duration = 2 })
         return
     end
-    
+
     local monsterHead = monster.Character:FindFirstChild("Head")
     if not monsterHead then return end
-    
+
     local char = LocalPlayer.Character
     if not char then return end
     local hrp = char:FindFirstChild("HumanoidRootPart")
     local humanoid = char:FindFirstChild("Humanoid")
-    if not hrp or not humanoid then return end
-    
-    -- Matikan AutoRotate dulu supaya karakter gak langgar arah yang kita set
-    local oldAutoRotate = humanoid.AutoRotate
-    humanoid.AutoRotate = false
-    
-    -- Putar badan karakter menghadap ke monster (hanya sumbu Y)
-    local lookCFrame = CFrame.lookAt(hrp.Position, Vector3.new(monsterHead.Position.X, hrp.Position.Y, monsterHead.Position.Z))
-    hrp.CFrame = lookCFrame
-    
-    -- Tunggu 2 frame biar kamera mobile (Touch Camera) bisa catch up tanpa nge-freeze
-    RunService.Heartbeat:Wait()
-    RunService.Heartbeat:Wait()
-    
-    -- Hitung posisi monster di layar
     local camera = workspace.CurrentCamera
-    local screenPos, onScreen = camera:WorldToScreenPoint(monsterHead.Position)
+    if not hrp or not humanoid or not camera then return end
+
+    local gun = equipGun()
+    if not gun then return end
+
+    local oldAutoRotate = humanoid.AutoRotate
+    local oldHrpCFrame = hrp.CFrame
+    local oldCamCFrame = camera.CFrame
     
-    if onScreen then
-        -- Gunakan VirtualUser: 100% aman untuk mobile, tidak bentrok dengan Touch Controls
-        VirtualUser:ClickButton1(Vector2.new(screenPos.X, screenPos.Y))
-    end
-    
-    -- Kembalikan AutoRotate setelah 0.5 detik biar karakter bisa jalan normal lagi
-    task.delay(0.5, function()
-        if humanoid and humanoid.Parent then
-            humanoid.AutoRotate = oldAutoRotate
+    humanoid.AutoRotate = false
+
+    -- Full 3D aim: snap both body and camera to the monster's head
+    hrp.CFrame = CFrame.lookAt(hrp.Position, monsterHead.Position)
+    camera.CFrame = CFrame.lookAt(camera.CFrame.Position, monsterHead.Position)
+
+    -- Fire immediately
+    pcall(function()
+        if gun and gun.Parent then
+            gun:Activate()
         end
     end)
-    
+
+    local screenPos, onScreen = camera:WorldToScreenPoint(monsterHead.Position)
+    if onScreen then
+        VirtualUser:ClickButton1(Vector2.new(screenPos.X, screenPos.Y))
+    end
+
+    -- Wait 1 render frame so the tool's local script registers the camera CFrame and fires the remote
+    RunService.RenderStepped:Wait()
+
+    -- Restore position and rotation
+    if hrp and hrp.Parent then
+        hrp.CFrame = oldHrpCFrame
+    end
+    if camera and camera.Parent then
+        camera.CFrame = oldCamCFrame
+    end
+    if humanoid and humanoid.Parent then
+        humanoid.AutoRotate = oldAutoRotate
+    end
+
     -- Visual feedback
     statusDot.BackgroundColor3 = Color3.fromRGB(255, 50, 50)
     TweenService:Create(shootBg, TweenInfo.new(0.05), { BackgroundColor3 = Color3.fromRGB(255, 200, 50) }):Play()
@@ -994,7 +1259,6 @@ local function instantShootMonster()
     end)
 end
 
--- Button click
 shootBtn.MouseButton1Click:Connect(function()
     if sMoved then
         sMoved = false
@@ -1013,18 +1277,21 @@ shootBtn.MouseLeave:Connect(function()
     shootBgStroke.Color = Color3.fromRGB(255, 180, 50)
 end)
 
--- Update visibility
 task.spawn(function()
     while true do
         if ShootMode then
             local hasGun = localPlayerHasGun()
             local monsterExists = getPlayerWithItem("Monster") ~= nil
-            
+
+            local wasVisible = shootContainer.Visible
             shootContainer.Visible = hasGun
-            
+
+            if hasGun and not wasVisible then
+                runShootPulse()
+                runStatusPulse()
+            end
+
             if hasGun then
-                startShootPulse()
-                startStatusPulse()
                 statusDot.BackgroundColor3 = monsterExists and Color3.fromRGB(0, 255, 100) or Color3.fromRGB(255, 200, 0)
             end
         else
@@ -1034,7 +1301,6 @@ task.spawn(function()
     end
 end)
 
--- Toggle
 MainTab:Toggle({
     Title = "Shoot Monster",
     Value = false,
@@ -1045,6 +1311,162 @@ MainTab:Toggle({
         end
     end
 })
+
+MainTab:Toggle({
+    Title = "Auto Shoot Monster",
+    Value = false,
+    Callback = function(v)
+        AutoShoot = v
+        if v then
+            WindUI:Notify({ Title = "Auto Shoot", Content = "Aktif! Akan tembak otomatis.", Duration = 3 })
+        end
+    end
+})
+
+task.spawn(function()
+    while true do
+        if AutoShoot and ShootMode then
+            local hasGun = localPlayerHasGun()
+            local monster = getPlayerWithItem("Monster")
+            if hasGun and monster and monster.Character then
+                local monsterHead = monster.Character:FindFirstChild("Head")
+                local myHrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+                if monsterHead and myHrp then
+                    local dist = (myHrp.Position - monsterHead.Position).Magnitude
+                    if dist < 200 then
+                        instantShootMonster()
+                    end
+                end
+            end
+        end
+        task.wait(0.5)
+    end
+end)
+
+-- =========================
+-- PLAYER TAB
+-- =========================
+PlayerTab:Slider({
+    Title = "WalkSpeed",
+    Value = {
+        Min = 16,
+        Max = 150,
+        Default = 16,
+    },
+    Callback = function(v)
+        local char = LocalPlayer.Character
+        local humanoid = char and char:FindFirstChild("Humanoid")
+        if humanoid then
+            humanoid.WalkSpeed = v
+        end
+    end
+})
+
+PlayerTab:Slider({
+    Title = "JumpPower",
+    Value = {
+        Min = 50,
+        Max = 300,
+        Default = 50,
+    },
+    Callback = function(v)
+        local char = LocalPlayer.Character
+        local humanoid = char and char:FindFirstChild("Humanoid")
+        if humanoid then
+            humanoid.JumpPower = v
+        end
+    end
+})
+
+PlayerTab:Toggle({
+    Title = "Infinite Jump",
+    Value = false,
+    Callback = function(v)
+        InfJump = v
+    end
+})
+
+UserInputService.JumpRequest:Connect(function()
+    if InfJump and LocalPlayer.Character then
+        local humanoid = LocalPlayer.Character:FindFirstChild("Humanoid")
+        if humanoid then
+            humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+        end
+    end
+end)
+
+PlayerTab:Toggle({
+    Title = "Noclip",
+    Value = false,
+    Callback = function(v)
+        Noclip = v
+    end
+})
+
+RunService.Stepped:Connect(function()
+    if Noclip and LocalPlayer.Character then
+        for _, part in pairs(LocalPlayer.Character:GetDescendants()) do
+            if part:IsA("BasePart") and part.CanCollide then
+                part.CanCollide = false
+            end
+        end
+    end
+end)
+
+PlayerTab:Toggle({
+    Title = "Anti-AFK",
+    Value = false,
+    Callback = function(v)
+        AntiAfk = v
+    end
+})
+
+task.spawn(function()
+    while true do
+        if AntiAfk then
+            pcall(function()
+                VirtualUser:CaptureFocus()
+                VirtualUser:ClickButton1(Vector2.new())
+                VirtualUser:ReleaseFocus()
+            end)
+        end
+        task.wait(math.random(120, 180))
+    end
+end)
+
+PlayerTab:Toggle({
+    Title = "Auto Respawn",
+    Value = false,
+    Callback = function(v)
+        AutoRespawn = v
+    end
+})
+
+task.spawn(function()
+    while true do
+        if AutoRespawn then
+            local char = LocalPlayer.Character
+            local humanoid = char and char:FindFirstChild("Humanoid")
+            if humanoid and humanoid.Health <= 0 then
+                task.wait(1)
+                pcall(function()
+                    LocalPlayer:LoadCharacter()
+                end)
+            end
+        end
+        task.wait(1)
+    end
+end)
+
+LocalPlayer.CharacterAdded:Connect(function()
+    task.wait(0.5)
+    local char = LocalPlayer.Character
+    local humanoid = char and char:FindFirstChild("Humanoid")
+    if humanoid then
+        humanoid.WalkSpeed = 16
+        humanoid.JumpPower = 50
+    end
+end)
 
 -- =========================
 -- OTHER FEATURES
@@ -1063,15 +1485,24 @@ MainTab:Toggle({
     Title = "Full Bright",
     Value = false,
     Callback = function(v)
-        local l = game:GetService("Lighting")
         if v then
-            l.Brightness = 5
-            l.ClockTime = 12
-            l.GlobalShadows = false
+            Lighting.Brightness = 5
+            Lighting.ClockTime = 12
+            Lighting.GlobalShadows = false
         else
-            l.Brightness = 2
-            l.ClockTime = 14
-            l.GlobalShadows = true
+            Lighting.Brightness = 2
+            Lighting.ClockTime = 14
+            Lighting.GlobalShadows = true
         end
     end
 })
+
+Players.PlayerRemoving:Connect(function(plr)
+    if plr == LocalPlayer then
+        for _, gui in pairs(game.CoreGui:GetChildren()) do
+            if gui.Name:match("LvHub") then
+                gui:Destroy()
+            end
+        end
+    end
+end)
