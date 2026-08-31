@@ -97,7 +97,7 @@ local isAnonymous = true
 
 local Window = WindUI:CreateWindow({
     Title = "Lv Hub | SK",
-    Author = "by lv — VANTA refit",
+    Author = "by lvala",
     Icon = "squircle",
     Size = UDim2.fromOffset(520, 460),
     Theme = "Midnight",
@@ -129,7 +129,7 @@ local PlayerTab = Window:Tab({ Title = "Player", Icon = "user" })
 WindUI:Notify({
     Title = "Welcome To Lv Hub",
     Content = "Secret Killer — VANTA refit",
-    Duration = 6
+    Duration = 5
 })
 
 -- =========================
@@ -144,7 +144,7 @@ local AutoRespawn = false
 local AntiAfk = false
 local InfJump = false
 local Noclip = false
-local POPUP_DURATION = 6
+local POPUP_DURATION = 2.5
 local currentBlur = nil
 local lastMonster = nil
 local lastSheriff = nil
