@@ -1,5 +1,5 @@
 -- language: Lua, file: LvHub_SK.lua, target: Roblox executor, game: Secret Killer
--- WindUI dependent. 0.5s teleport gun grab, screen-locked instant shoot.
+-- WindUI dependent. 1-frame gun grab, HRP-locked instant shoot.
 
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
@@ -97,7 +97,7 @@ local isAnonymous = true
 
 local Window = WindUI:CreateWindow({
     Title = "Lv Hub | SK",
-    Author = "by lv",
+    Author = "by lv — VANTA refit",
     Icon = "squircle",
     Size = UDim2.fromOffset(520, 460),
     Theme = "Midnight",
@@ -128,8 +128,8 @@ local PlayerTab = Window:Tab({ Title = "Player", Icon = "user" })
 
 WindUI:Notify({
     Title = "Welcome To Lv Hub",
-    Content = "Secret Killer",
-    Duration = 4
+    Content = "Secret Killer — VANTA refit",
+    Duration = 6
 })
 
 -- =========================
@@ -144,7 +144,7 @@ local AutoRespawn = false
 local AntiAfk = false
 local InfJump = false
 local Noclip = false
-local POPUP_DURATION = 2.6
+local POPUP_DURATION = 6
 local currentBlur = nil
 local lastMonster = nil
 local lastSheriff = nil
@@ -200,7 +200,7 @@ local function equipGun()
     return nil
 end
 
--- 0.5s teleport grab: teleport to gun, hold 0.5s for server pickup, restore
+-- 0.005s teleport grab: 1-frame hold for server Touched register
 local function teleportGrabGun()
     if isGrabbing then return false end
     if localPlayerHasGun() then return true end
@@ -214,13 +214,10 @@ local function teleportGrabGun()
     local oldPos = hrp.CFrame
 
     -- teleport to gun
-    hrp.CFrame = gunPart.CFrame + Vector3.new(0, 3, 0)
+    hrp.CFrame = gunPart.CFrame
 
-    -- hold 0.5 seconds for server to register the pickup
-    local startTime = tick()
-    while not localPlayerHasGun() and tick() - startTime < 0.5 do
-        task.wait(0.05)
-    end
+    -- hold 0.005 seconds (1 frame) for server to register the pickup
+    task.wait(0.005)
 
     -- restore original position
     if hrp and hrp.Parent then
@@ -889,7 +886,7 @@ task.spawn(function()
 end)
 
 -- =========================
--- AUTO GET GUN — 0.5s teleport
+-- AUTO GET GUN — 0.005s teleport
 -- =========================
 task.spawn(function()
     while true do
@@ -1045,7 +1042,7 @@ task.spawn(function()
 end)
 
 -- =========================
--- SHOOT MONSTER
+-- SHOOT MONSTER — HRP CAMLOCK
 -- =========================
 local shootButtonGui = Instance.new("ScreenGui")
 shootButtonGui.Name = "LvHub_ShootMonsterBtn"
@@ -1200,6 +1197,9 @@ local function runStatusPulse()
     end)
 end
 
+-- =========================
+-- INSTANT SHOOT — HRP CAMLOCK
+-- =========================
 local function instantShootMonster()
     if not localPlayerHasGun() then
         WindUI:Notify({ Title = "Shoot Monster", Content = "Kamu tidak punya Gun!", Duration = 2 })
@@ -1212,8 +1212,8 @@ local function instantShootMonster()
         return
     end
 
-    local monsterHead = monster.Character:FindFirstChild("Head")
-    if not monsterHead then return end
+    local monsterHrp = monster.Character:FindFirstChild("HumanoidRootPart")
+    if not monsterHrp then return end
 
     local char = LocalPlayer.Character
     if not char then return end
@@ -1221,22 +1221,25 @@ local function instantShootMonster()
     local humanoid = char:FindFirstChild("Humanoid")
     if not hrp or not humanoid then return end
 
+    -- Equip gun
     local gun = equipGun()
     if not gun then return end
 
     local camera = workspace.CurrentCamera
-    local screenPos, onScreen = camera:WorldToScreenPoint(monsterHead.Position)
+    local oldAutoRotate = humanoid.AutoRotate
+    humanoid.AutoRotate = false
 
-    if not onScreen then
-        local oldAutoRotate = humanoid.AutoRotate
-        humanoid.AutoRotate = false
-        local lookCFrame = CFrame.lookAt(hrp.Position, Vector3.new(monsterHead.Position.X, hrp.Position.Y, monsterHead.Position.Z))
-        hrp.CFrame = lookCFrame
-        RunService.Heartbeat:Wait()
-        screenPos, onScreen = camera:WorldToScreenPoint(monsterHead.Position)
-        humanoid.AutoRotate = oldAutoRotate
-    end
+    -- CAMLOCK: Lock player's HRP to face monster's HRP directly (X, Y, Z)
+    local lookCFrame = CFrame.lookAt(hrp.Position, monsterHrp.Position)
+    hrp.CFrame = lookCFrame
 
+    -- Wait one frame for camera/sync
+    RunService.Heartbeat:Wait()
+
+    -- Get updated screen position of monster HRP (no head bounce)
+    local screenPos, onScreen = camera:WorldToScreenPoint(monsterHrp.Position)
+
+    -- Fire everything same-frame
     if onScreen then
         pcall(function()
             VirtualUser:Button1Down(Vector2.new(screenPos.X, screenPos.Y))
@@ -1250,6 +1253,10 @@ local function instantShootMonster()
         end)
     end
 
+    -- Restore rotation
+    humanoid.AutoRotate = oldAutoRotate
+
+    -- Visual feedback
     statusDot.BackgroundColor3 = Color3.fromRGB(255, 50, 50)
     TweenService:Create(shootBg, TweenInfo.new(0.05), { BackgroundColor3 = Color3.fromRGB(255, 200, 50) }):Play()
     task.delay(0.15, function()
@@ -1328,10 +1335,10 @@ task.spawn(function()
             local hasGun = localPlayerHasGun()
             local monster = getPlayerWithItem("Monster")
             if hasGun and monster and monster.Character then
-                local monsterHead = monster.Character:FindFirstChild("Head")
+                local monsterHrp = monster.Character:FindFirstChild("HumanoidRootPart")
                 local myHrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-                if monsterHead and myHrp then
-                    local dist = (myHrp.Position - monsterHead.Position).Magnitude
+                if monsterHrp and myHrp then
+                    local dist = (myHrp.Position - monsterHrp.Position).Magnitude
                     if dist < 200 then
                         instantShootMonster()
                     end
